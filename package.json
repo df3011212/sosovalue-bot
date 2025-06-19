@@ -13,8 +13,5 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "puppeteer": {
-    "default_browser_revision": "137.0.7151.119"
   }
 }
