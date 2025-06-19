@@ -1,16 +1,16 @@
 {
   "name": "sosovalue-bot",
   "version": "1.0.0",
-  "description": "Auto notify SoSoValue research articles",
-  "main": "index.js",
+  "type": "commonjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "postinstall": "npx puppeteer browsers install chromium"
   },
   "dependencies": {
+    "puppeteer": "^24.10.2",
     "axios": "^1.6.8",
     "dotenv": "^16.4.5",
-    "node-cron": "^3.0.3",
-    "puppeteer": "^22.6.2"
+    "node-cron": "^3.0.3"
   },
   "engines": {
     "node": ">=18"

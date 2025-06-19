@@ -43,18 +43,10 @@ async function scrapeArticles() {
      ‣ 不指定 executablePath  → 讓 Puppeteer 自動
        找到 (專案裡) .local-chromium，可在 Render Run 階段存活
   ----------------------------------------- */
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    ignoreHTTPSErrors: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--no-zygote',
-      '--single-process',
-      '--ignore-certificate-errors'
-    ]
-  });
+const browser = await puppeteer.launch({
+  headless: 'new',
+  args: ['--no-sandbox', '--disable-setuid-sandbox']
+});
 
   try {
     const page = await browser.newPage();
