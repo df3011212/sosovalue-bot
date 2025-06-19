@@ -1,20 +1,25 @@
-require('dotenv').config();          // 本機用，Render 會用 Environment Variables
+/* -------------------------------------------------
+   SoSoValue 研究文章自動推播
+   ------------------------------------------------- */
+require('dotenv').config();            // 本機 .env；Render 用「環境變數」
 
 const puppeteer = require('puppeteer');
 const axios     = require('axios');
 const fs        = require('fs');
 const cron      = require('node-cron');
 
+/* ---------- 必填 ---------- */
 const TELEGRAM_TOKEN   = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;   // -100xxxxxxxxx
 const LAST_ID_FILE     = 'last_article_id.txt';
 
+/* ---------- 檢查 ---------- */
 if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) {
   console.error('⛔️ TELEGRAM_TOKEN / TELEGRAM_CHAT_ID 尚未設定！');
   process.exit(1);
 }
 
-/* ---------- Telegram ---------- */
+/* ---------- 發 Telegram ---------- */
 async function sendTelegram(text) {
   try {
     await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
@@ -33,15 +38,21 @@ const saveLastId = id  => fs.writeFileSync(LAST_ID_FILE, id, 'utf8');
 
 /* ---------- 抓文章 ---------- */
 async function scrapeArticles() {
+  /* ----------- 這一段同時解二事 ----------- 
+     ‣ ignoreHTTPSErrors      → 本機 ERR_CERT… 不再出
+     ‣ 不指定 executablePath  → 讓 Puppeteer 自動
+       找到 (專案裡) .local-chromium，可在 Render Run 階段存活
+  ----------------------------------------- */
   const browser = await puppeteer.launch({
     headless: 'new',
-    executablePath: puppeteer.executablePath(),   // ←★ 必加：Render 上正確的 Chrome 路徑
+    ignoreHTTPSErrors: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--no-zygote',
-      '--single-process'
+      '--single-process',
+      '--ignore-certificate-errors'
     ]
   });
 
@@ -52,22 +63,28 @@ async function scrapeArticles() {
       'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
     );
 
-    await page.goto('https://sosovalue.com/tc/research', { waitUntil: 'networkidle2', timeout: 0 });
+    await page.goto('https://sosovalue.com/tc/research', {
+      waitUntil: 'networkidle2',
+      timeout  : 0
+    });
 
-    /* 無限滾動直到穩定三次 */
+    /* 無限滾動直到穩定三次 ------------------ */
     let prev = 0, stable = 0;
     while (stable < 3) {
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(1500);                           // ←★ 官方 API
+      await page.waitForTimeout(1500);
       const cur = await page.evaluate(
         () => document.querySelectorAll('li.MuiTimelineItem-root').length
       );
       if (cur === prev) stable++; else { prev = cur; stable = 0; }
     }
 
-    const todayStr = new Date().toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' })
-                     .replace('/', '月') + '日';
+    /* 今天字串 (6月19日) ---------------------- */
+    const todayStr = new Date().toLocaleDateString('zh-TW',
+                      { month: 'numeric', day: 'numeric' })
+                      .replace('/', '月') + '日';
 
+    /* 解析文章 -------------------------------- */
     const rows = await page.evaluate(today => {
       const items = Array.from(document.querySelectorAll('li.MuiTimelineItem-root'));
       return items.map(li => {
@@ -83,9 +100,9 @@ async function scrapeArticles() {
     }, todayStr);
 
     return rows.map(r => ({
-      id:    r.id,
+      id   : r.id,
       title: r.title,
-      url:   `https://sosovalue.com/tc/research/${r.id}`
+      url  : `https://sosovalue.com/tc/research/${r.id}`
     }));
   } finally {
     await browser.close();
