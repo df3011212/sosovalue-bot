@@ -38,10 +38,16 @@ const saveLastId = id  => fs.writeFileSync(LAST_ID_FILE, id, 'utf8');
 /* ============ 擷取文章 ============ */
 async function scrapeArticles() {
   const browser = await puppeteer.launch({
-  headless: true,
-  executablePath: '/usr/bin/chromium-browser', // 使用系統內建的 Chromium
-  args: ['--no-sandbox', '--disable-setuid-sandbox']
+  headless: 'new',
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--no-zygote',
+    '--single-process'
+  ]
 });
+
 
   try {
     const page = await browser.newPage();
