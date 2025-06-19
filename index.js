@@ -1,4 +1,4 @@
-require('dotenv').config(); // 本機用，Render 會用 Environment Variables
+require('dotenv').config();          // 本機用，Render 會用 Environment Variables
 
 const puppeteer = require('puppeteer');
 const axios     = require('axios');
@@ -14,28 +14,34 @@ if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) {
   process.exit(1);
 }
 
+/* ---------- Telegram ---------- */
 async function sendTelegram(text) {
   try {
-    await axios.post(
-      `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
-      { chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'Markdown' }
-    );
+    await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+      chat_id: TELEGRAM_CHAT_ID,
+      text,
+      parse_mode: 'Markdown'
+    });
   } catch (err) {
     console.error('❌ 發送 Telegram 失敗：', err?.response?.data || err.message);
   }
 }
 
+/* ---------- 檔案工具 ---------- */
 const getLastId  = () => (fs.existsSync(LAST_ID_FILE) ? fs.readFileSync(LAST_ID_FILE, 'utf8').trim() : '');
 const saveLastId = id  => fs.writeFileSync(LAST_ID_FILE, id, 'utf8');
 
+/* ---------- 抓文章 ---------- */
 async function scrapeArticles() {
   const browser = await puppeteer.launch({
     headless: 'new',
+    executablePath: puppeteer.executablePath(),   // ←★ 必加：Render 上正確的 Chrome 路徑
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      '--no-zygote'
+      '--no-zygote',
+      '--single-process'
     ]
   });
 
@@ -46,23 +52,21 @@ async function scrapeArticles() {
       'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
     );
 
-    await page.goto('https://sosovalue.com/tc/research', {
-      waitUntil: 'networkidle2', timeout: 0
-    });
+    await page.goto('https://sosovalue.com/tc/research', { waitUntil: 'networkidle2', timeout: 0 });
 
+    /* 無限滾動直到穩定三次 */
     let prev = 0, stable = 0;
     while (stable < 3) {
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await new Promise(r => setTimeout(r, 1500));
+      await page.waitForTimeout(1500);                           // ←★ 官方 API
       const cur = await page.evaluate(
         () => document.querySelectorAll('li.MuiTimelineItem-root').length
       );
       if (cur === prev) stable++; else { prev = cur; stable = 0; }
     }
 
-    const todayStr = new Date().toLocaleDateString('zh-TW', {
-      month: 'numeric', day: 'numeric'
-    }).replace('/', '月') + '日';
+    const todayStr = new Date().toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' })
+                     .replace('/', '月') + '日';
 
     const rows = await page.evaluate(today => {
       const items = Array.from(document.querySelectorAll('li.MuiTimelineItem-root'));
@@ -79,15 +83,16 @@ async function scrapeArticles() {
     }, todayStr);
 
     return rows.map(r => ({
-      id: r.id,
+      id:    r.id,
       title: r.title,
-      url: `https://sosovalue.com/tc/research/${r.id}`
+      url:   `https://sosovalue.com/tc/research/${r.id}`
     }));
   } finally {
     await browser.close();
   }
 }
 
+/* ---------- 首次推今天全部 ---------- */
 async function sendTodayBatch() {
   const articles = await scrapeArticles();
   if (!articles.length) return console.log('⚠️ 今天沒有文章');
@@ -96,16 +101,15 @@ async function sendTodayBatch() {
     const chunk = articles.slice(i, i + 20);
     const msg =
       `📢 *今天 24 小時內研究文章（${i + 1}–${i + chunk.length}）*\n\n` +
-      chunk.map((a, j) =>
-        `*${i + j + 1}. ${a.title}*\n🔗 ${a.url}`
-      ).join('\n\n');
+      chunk.map((a, j) => `*${i + j + 1}. ${a.title}*\n🔗 ${a.url}`).join('\n\n');
     await sendTelegram(msg);
     console.log(`✅ 首次推送 ${i + 1}–${i + chunk.length}`);
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 1000));   // 防限流
   }
   saveLastId(articles[0].id);
 }
 
+/* ---------- 後續只推最新 ---------- */
 async function checkAndSendLatest() {
   const articles = await scrapeArticles();
   if (!articles.length) return console.log('⚠️ 沒抓到任何文章');
@@ -119,17 +123,15 @@ async function checkAndSendLatest() {
   saveLastId(newest.id);
 }
 
+/* ---------- 主流程 ---------- */
 (async () => {
   console.log('🚀 第一次啟動，推送今日文章清單…');
   await sendTodayBatch();
 
-  console.log('📅 排程啟動：每 15 分鐘檢查一次');
+  console.log('📅 排程啟動：每 15 分檢查一次');
   cron.schedule('*/15 * * * *', async () => {
     console.log('\n🔍 定時檢查新文章…', new Date().toLocaleString());
-    try {
-      await checkAndSendLatest();
-    } catch (err) {
-      console.error('❌ 檢查出錯：', err.message);
-    }
+    try { await checkAndSendLatest(); }
+    catch (err) { console.error('❌ 檢查出錯：', err.message); }
   });
 })();
