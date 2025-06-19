@@ -9,9 +9,6 @@
     "axios": "^1.6.8",
     "dotenv": "^16.4.5",
     "node-cron": "^3.0.3",
-    "puppeteer": "^21.3.8"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "puppeteer": "^22.7.1"
   }
 }
