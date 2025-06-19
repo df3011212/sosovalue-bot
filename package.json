@@ -3,13 +3,14 @@
   "version": "1.0.0",
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
-    "puppeteer": "20.9.0",
     "axios": "^1.6.8",
     "dotenv": "^16.4.5",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "puppeteer": "^20.9.0"
   },
   "engines": {
     "node": ">=18"
