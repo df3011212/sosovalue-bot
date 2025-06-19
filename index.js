@@ -124,7 +124,7 @@ async function checkAndSendAllNew() {
     await new Promise(r => setTimeout(r, 1000));
   }
 
-  saveLastId(newArticles[0].id);
+  saveLastId(newArticles[newArticles.length - 1].id);
 }
 
 /* ============ 主流程 ============ */
