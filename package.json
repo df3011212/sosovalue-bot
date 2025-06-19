@@ -2,21 +2,16 @@
   "name": "sosovalue-bot",
   "version": "1.0.0",
   "type": "commonjs",
-
   "scripts": {
-    // 建置時：手動下載最新 stable Chrome 給 puppeteer 用
     "postinstall": "npx puppeteer browsers install chrome",
-    // 執行時：Render 會跑這行
     "start": "node index.js"
   },
-
   "dependencies": {
     "puppeteer": "^24.10.2",
     "axios": "^1.6.8",
     "dotenv": "^16.4.5",
     "node-cron": "^3.0.3"
   },
-
   "engines": {
     "node": ">=18.0.0"
   }
