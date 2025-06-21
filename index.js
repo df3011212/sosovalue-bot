@@ -119,7 +119,9 @@ async function checkAndSendAllNew() {
 
   for (let i = newArticles.length - 1; i >= 0; i--) {
     const a = newArticles[i];
-    await sendTelegram(`📢 *SoSoValue 新文章*\n\n*${a.title}*\n🔗 ${a.url}`);
+
+    await sendTelegram(`*${a.title}*\n${a.url}`);
+
     console.log(`✅ 已推送：${a.title}`);
     await new Promise(r => setTimeout(r, 1000));
   }
