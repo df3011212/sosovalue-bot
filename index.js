@@ -1,9 +1,7 @@
 /* -------------------------------------------------
-   SoSoValue 研究文章自動推播
-   1. 啟動時 → 推送今天 24h 內全部文章（分批）
-   2. 之後每 15 分 → 若有新文章就全部推播（避免漏）
+   SoSoValue 研究文章自動推播（含作者/標籤）
    ------------------------------------------------- */
-require('dotenv').config();               // ← 讀 .env (本機用)
+require('dotenv').config();               // ← 讀 .env
 
 const puppeteer = require('puppeteer');
 const axios     = require('axios');
@@ -19,7 +17,7 @@ if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) {
   process.exit(1);
 }
 
-/* ============ Telegram 發送 ============ */
+/* ---------- Telegram ---------- */
 async function sendTelegram(text) {
   try {
     await axios.post(
@@ -31,11 +29,11 @@ async function sendTelegram(text) {
   }
 }
 
-/* ============ 檔案讀寫 ============ */
+/* ---------- 檔案 ---------- */
 const getLastId  = () => (fs.existsSync(LAST_ID_FILE) ? fs.readFileSync(LAST_ID_FILE, 'utf8').trim() : '');
 const saveLastId = id  => fs.writeFileSync(LAST_ID_FILE, id, 'utf8');
 
-/* ============ 擷取文章 ============ */
+/* ---------- 擷取文章 ---------- */
 async function scrapeArticles() {
   const browser = await puppeteer.launch({
     headless: 'new',
@@ -50,7 +48,7 @@ async function scrapeArticles() {
     );
     await page.goto('https://sosovalue.com/tc/research', { waitUntil: 'networkidle2', timeout: 0 });
 
-    // 滾動直到穩定
+    /* --- 滾到最底，直到穩定 --- */
     let prev = 0, stable = 0;
     while (stable < 3) {
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -59,31 +57,56 @@ async function scrapeArticles() {
       if (cur === prev) stable++; else { prev = cur; stable = 0; }
     }
 
-    const todayStr = new Date().toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' }).replace('/', '月') + '日';
+    const todayStr = new Date().toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' })
+                     .replace('/', '月') + '日';
 
+    /* --- 解析文章列 --- */
     const rows = await page.evaluate(today => {
       const items = Array.from(document.querySelectorAll('li.MuiTimelineItem-root'));
       return items.map(li => {
+        /* 時間 / 標題 / 連結 / ID */
         const when  = li.innerText.match(/^\s*\d+\s*(秒|分鐘|小時)前|[0-9]+月[0-9]+日/)?.[0] || '';
         const a     = li.querySelector('a[href^="/tc/news/"]');
         const title = li.querySelector('div.font-bold')?.innerText.trim();
         const href  = a?.getAttribute('href') || '';
         const id    = href.match(/(\d{18,})/)?.[1] || '';
-        return { title, id, when };
-      }).filter(x => x.title && x.id && (x.when.includes('前') || x.when.includes(today)));
+
+        /* 作者與標籤 → Hashtag 集合 */
+        const hashSet = new Set();
+
+        /* 作者 */
+        const author = li.querySelector('span.text-neutral-fg-3-rest')?.innerText.trim();
+        if (author) hashSet.add('#' + author.replace(/\s+/g, ''));
+
+        /* 文章自帶標籤 */
+        li.querySelectorAll('div.flex a').forEach(node => {
+          const raw = node.innerText.trim();
+          if (!raw) return;
+          if (raw.startsWith('$')) {                 // $BTC → #BTC
+            hashSet.add('#' + raw.slice(1).replace(/\./g, '').toUpperCase());
+          } else if (raw.startsWith('#')) {          // #Bitcoin → #Bitcoin
+            hashSet.add(raw.replace(/\s+/g, ''));
+          }
+        });
+
+        return {
+          id,
+          title,
+          url: `https://sosovalue.com/tc/research/${id}`,
+          when,
+          hashtags: Array.from(hashSet)
+        };
+      })
+      .filter(x => x.title && x.id && x.when && (x.when.includes('前') || x.when.includes(today)));
     }, todayStr);
 
-    return rows.map(r => ({
-      id:    r.id,
-      title: r.title,
-      url:   `https://sosovalue.com/tc/research/${r.id}`
-    }));
+    return rows;
   } finally {
     await browser.close();
   }
 }
 
-/* ============ 第一次啟動：推送今天全部文章 ============ */
+/* ---------- 第一次啟動：推送今天全部文章 ---------- */
 async function sendTodayBatch() {
   const articles = await scrapeArticles();
   if (!articles.length) { console.log('⚠️ 今天沒有文章'); return; }
@@ -92,9 +115,10 @@ async function sendTodayBatch() {
     const chunk = articles.slice(i, i + 20);
     const msg =
       `📢 *今天 24 小時內研究文章（${i + 1}–${i + chunk.length}）*\n\n` +
-      chunk.map((a, j) =>
-        `*${i + j + 1}. ${a.title}*\n🔗 ${a.url}`
-      ).join('\n\n');
+      chunk.map((a, j) => {
+        const tags = a.hashtags.length ? '\n' + a.hashtags.join(' ') : '';
+        return `*${i + j + 1}. ${a.title}*${tags}\n🔗 ${a.url}`;
+      }).join('\n\n');
     await sendTelegram(msg);
     console.log(`✅ 首次推送 ${i + 1}–${i + chunk.length}`);
     await new Promise(r => setTimeout(r, 1000));
@@ -102,7 +126,7 @@ async function sendTodayBatch() {
   saveLastId(articles[0].id);
 }
 
-/* ============ 後續檢查：推送所有未發送文章 ============ */
+/* ---------- 後續檢查：推送所有未發送文章 ---------- */
 async function checkAndSendAllNew() {
   const articles = await scrapeArticles();
   if (!articles.length) return console.log('⚠️ 沒抓到任何文章');
@@ -119,17 +143,16 @@ async function checkAndSendAllNew() {
 
   for (let i = newArticles.length - 1; i >= 0; i--) {
     const a = newArticles[i];
-
-    await sendTelegram(`*${a.title}*\n${a.url}`);
-
+    const tags = a.hashtags.length ? '\n' + a.hashtags.join(' ') : '';
+    await sendTelegram(`📢 *SoSoValue 新文章*\n\n*${a.title}*${tags}\n🔗 ${a.url}`);
     console.log(`✅ 已推送：${a.title}`);
     await new Promise(r => setTimeout(r, 1000));
   }
 
-  saveLastId(newArticles[newArticles.length - 1].id);
+  saveLastId(newArticles[0].id);
 }
 
-/* ============ 主流程 ============ */
+/* ---------- 主流程 ---------- */
 (async () => {
   console.log('🚀 第一次啟動，推送今日文章清單…');
   await sendTodayBatch();
